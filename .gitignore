@@ -1,0 +1,13 @@
+# Môi trường ảo
+venv/
+/venv
+__pycache__/
+*.pyc
+*.pyo
+
+# Dữ liệu người dùng và model
+face_data/
+
+# File hệ điều hành
+.DS_Store
+Thumbs.db 

@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hệ Thống Nhận Diện Khuôn Mặt</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Hệ Thống Nhận Diện Khuôn Mặt</h1>
+            <p>Đăng ký, thu thập dữ liệu và nhận diện khuôn mặt với độ chính xác cao.</p>
+        </header>
+
+        <main class="grid-container">
+            <!-- Cột bên trái: Đăng ký & Danh sách -->
+            <div class="grid-item">
+                <section class="card">
+                    <h2><span class="icon">👤</span>Đăng Ký Người Dùng</h2>
+                    <div class="tab-group">
+                        <button id="tab-webcam" class="tab-btn active" type="button">Dùng Webcam</button>
+                        <button id="tab-upload" class="tab-btn" type="button">Upload Ảnh</button>
+                    </div>
+
+                    <!-- Tab Thu thập qua Webcam -->
+                    <div id="webcam-section">
+                        <div class="form-group">
+                            <label for="webcam-name">Tên người dùng:</label>
+                            <input type="text" id="webcam-name" required placeholder="Nhập tên của bạn ở đây">
+                        </div>
+                        <div class="form-group">
+                            <label>Camera Thu Thập Dữ Liệu:</label>
+                            <div class="camera-container">
+                                <video id="collect-video" autoplay muted playsinline>Trình duyệt không hỗ trợ.</video>
+                                <div id="collect-progress" class="result-box">Bấm "Bắt đầu" để thu thập</div>
+                            </div>
+                        </div>
+                        <div class="controls">
+                            <button id="start-collect-btn" class="btn btn-primary" type="button">Bắt đầu</button>
+                            <button id="stop-collect-btn" class="btn btn-danger" type="button" style="display:none;">Dừng</button>
+                        </div>
+                         <small>Hệ thống sẽ tự động chụp {{ max_collect }} ảnh khi phát hiện có khuôn mặt.</small>
+                    </div>
+
+                    <!-- Tab Upload ảnh -->
+                    <div id="upload-section" style="display:none;">
+                        <form action="{{ url_for('register') }}" method="post" enctype="multipart/form-data" id="upload-form">
+                            <div class="form-group">
+                                <label for="upload-name">Tên người dùng:</label>
+                                <input type="text" id="upload-name" name="name" required placeholder="Nhập tên của bạn ở đây">
+                            </div>
+                            <div class="form-group">
+                                <label for="images">Chọn ảnh khuôn mặt:</label>
+                                <input type="file" id="images" name="images" multiple required accept="image/jpeg, image/png, image/jpg">
+                                <small>Chọn nhiều ảnh để có kết quả tốt nhất. Mỗi ảnh chỉ nên có một khuôn mặt.</small>
+                            </div>
+                            <button type="submit" class="btn btn-primary">Tải lên và Training</button>
+                        </form>
+                    </div>
+                </section>
+
+                <section class="card">
+                    <h2><span class="icon">👥</span>Danh Sách Người Dùng</h2>
+                    <div class="user-list">
+                        {% if users %}
+                            <table>
+                                <tbody>
+                                {% for user in users %}
+                                    <tr>
+                                        <td>{{ user.name }}</td>
+                                        <td>
+                                            <form action="{{ url_for('delete_user', user_id=user.id) }}" method="post" onsubmit="return confirm('Bạn có chắc muốn xóa vĩnh viễn người dùng {{ user.name }} và toàn bộ dữ liệu?');">
+                                                <button type="submit" class="btn btn-danger btn-sm">Xóa</button>
+                                            </form>
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                                </tbody>
+                            </table>
+                        {% else %}
+                            <p>Chưa có người dùng nào trong hệ thống.</p>
+                        {% endif %}
+                    </div>
+                </section>
+            </div>
+
+            <!-- Cột bên phải: Nhận diện -->
+            <div class="grid-item">
+                <section class="card">
+                    <h2><span class="icon">📷</span>Nhận Diện Real-time</h2>
+                    <div class="camera-container">
+                        <video id="recognize-video" autoplay muted playsinline></video>
+                        <div id="result-box" class="result-box">
+                            <p id="result-text">Đang khởi động camera...</p>
+                        </div>
+                    </div>
+                    <div class="controls">
+                        <button id="recognize-btn" class="btn btn-secondary">Nhận Diện</button>
+                    </div>
+                </section>
+            </div>
+        </main>
+    </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    // === DOM Elements ===
+    const tabWebcam = document.getElementById('tab-webcam');
+    const tabUpload = document.getElementById('tab-upload');
+    const webcamSection = document.getElementById('webcam-section');
+    const uploadSection = document.getElementById('upload-section');
+    const collectVideo = document.getElementById('collect-video');
+    const startCollectBtn = document.getElementById('start-collect-btn');
+    const stopCollectBtn = document.getElementById('stop-collect-btn');
+    const collectProgress = document.getElementById('collect-progress');
+    const recognizeVideo = document.getElementById('recognize-video');
+    const recognizeBtn = document.getElementById('recognize-btn');
+    const resultBox = document.getElementById('result-box');
+    const resultText = document.getElementById('result-text');
+
+    // === State Variables ===
+    const MAX_COLLECT_IMAGES = parseInt("{{ max_collect }}", 10);
+    let collectStream = null;
+    let recognizeStream = null;
+    let isCollecting = false;
+    let collectInterval = null;
+
+    // === Core Functions ===
+    function switchTab(showWebcam) {
+        tabWebcam.classList.toggle('active', showWebcam);
+        webcamSection.style.display = showWebcam ? 'block' : 'none';
+        tabUpload.classList.toggle('active', !showWebcam);
+        uploadSection.style.display = showWebcam ? 'none' : 'block';
+
+        if (showWebcam) {
+            startWebcam(collectVideo, (stream) => { collectStream = stream; });
+        } else {
+            stopWebcam(collectStream, collectVideo);
+        }
+    }
+
+    async function startWebcam(videoElement, streamHandler) {
+        if (videoElement.srcObject) return true; // Already running
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+            videoElement.srcObject = stream;
+            if (streamHandler) streamHandler(stream);
+            return true;
+        } catch (err) {
+            console.error(`Webcam error for ${videoElement.id}:`, err);
+            return false;
+        }
+    }
+
+    function stopWebcam(stream, videoElement) {
+        if (stream) {
+            stream.getTracks().forEach(track => track.stop());
+        }
+        videoElement.srcObject = null;
+    }
+
+    // === Data Collection Logic ===
+    startCollectBtn.addEventListener('click', () => {
+        const nameInput = document.getElementById('webcam-name');
+        if (!nameInput.value.trim()) {
+            alert('Vui lòng nhập tên người dùng.');
+            nameInput.focus();
+            return;
+        }
+        isCollecting = true;
+        let collectedCount = 0;
+        
+        startCollectBtn.style.display = 'none';
+        stopCollectBtn.style.display = 'inline-block';
+        collectProgress.className = 'result-box processing';
+        collectProgress.textContent = `Đã chụp: 0/${MAX_COLLECT_IMAGES}`;
+
+        collectInterval = setInterval(() => {
+            if (!isCollecting || collectedCount >= MAX_COLLECT_IMAGES) {
+                finishCollection(collectedCount >= MAX_COLLECT_IMAGES);
+                return;
+            }
+            captureAndSend(nameInput.value.trim(), (success) => {
+                if (success) {
+                    collectedCount++;
+                    collectProgress.textContent = `Đã chụp: ${collectedCount}/${MAX_COLLECT_IMAGES}`;
+                    if (collectedCount >= MAX_COLLECT_IMAGES) {
+                        finishCollection(true);
+                    }
+                }
+            });
+        }, 500);
+    });
+
+    stopCollectBtn.addEventListener('click', () => finishCollection(false));
+
+    function finishCollection(isComplete) {
+        isCollecting = false;
+        clearInterval(collectInterval);
+        startCollectBtn.style.display = 'inline-block';
+        stopCollectBtn.style.display = 'none';
+        
+        if (isComplete) {
+            collectProgress.textContent = 'Hoàn tất! Đang training...';
+            collectProgress.className = 'result-box success';
+            const finalForm = new FormData();
+            finalForm.append('name', document.getElementById('webcam-name').value.trim());
+            fetch('/register', { method: 'POST', body: finalForm })
+                .then(response => {
+                    if (response.ok) {
+                        alert('Đăng ký và training thành công! Trang sẽ được tải lại.');
+                        window.location.reload();
+                    } else {
+                        alert('Lỗi trong quá trình training cuối cùng.');
+                        collectProgress.className = 'result-box error';
+                    }
+                });
+        } else {
+            collectProgress.textContent = 'Đã dừng thu thập.';
+            collectProgress.className = 'result-box';
+        }
+    }
+    
+    function captureAndSend(name, callback) {
+        const canvas = document.createElement('canvas');
+        canvas.width = collectVideo.videoWidth;
+        canvas.height = collectVideo.videoHeight;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+        ctx.drawImage(collectVideo, 0, 0);
+
+        canvas.toBlob(async (blob) => {
+            if (!blob) return;
+            const formData = new FormData();
+            formData.append('name', name);
+            formData.append('image', blob, 'webcam_capture.jpg');
+            try {
+                const response = await fetch('/collect_webcam_image', { method: 'POST', body: formData });
+                const data = await response.json();
+                callback(data.status === 'ok');
+            } catch (error) {
+                console.error('Lỗi gửi ảnh:', error);
+                callback(false);
+            }
+        }, 'image/jpeg');
+    }
+
+    // === Recognition Logic ===
+    recognizeBtn.addEventListener('click', async () => {
+        if (!recognizeStream || recognizeVideo.paused) {
+            alert('Camera nhận diện chưa sẵn sàng.');
+            return;
+        }
+        recognizeBtn.disabled = true;
+        resultText.textContent = 'Đang xử lý...';
+        resultBox.className = 'result-box processing';
+
+        const canvas = document.createElement('canvas');
+        canvas.width = recognizeVideo.videoWidth;
+        canvas.height = recognizeVideo.videoHeight;
+        canvas.getContext('2d').drawImage(recognizeVideo, 0, 0);
+
+        canvas.toBlob(async (blob) => {
+            const formData = new FormData();
+            formData.append('image', blob, 'rec_img.jpg');
+            try {
+                const response = await fetch('/recognize', { method: 'POST', body: formData });
+                const data = await response.json();
+                updateResult(data);
+            } catch (error) {
+                updateResult({ status: 'error', message: 'Lỗi kết nối' });
+            } finally {
+                recognizeBtn.disabled = false;
+            }
+        }, 'image/jpeg');
+    });
+
+    function updateResult(data) {
+        switch (data.status) {
+            case 'success':
+                resultText.innerHTML = `Chào, <strong>${data.user.name}</strong> <small>(~${data.distance})</small>`;
+                resultBox.className = 'result-box success';
+                break;
+            case 'unknown':
+                resultText.innerHTML = `<strong>Người lạ</strong> <small>(~${data.distance || 'N/A'})</small>`;
+                resultBox.className = 'result-box not-found';
+                break;
+            case 'no_face':
+                resultText.textContent = 'Không tìm thấy khuôn mặt.';
+                resultBox.className = 'result-box';
+                break;
+            default:
+                resultText.textContent = `Lỗi: ${data.message || 'Không xác định'}`;
+                resultBox.className = 'result-box error';
+        }
+    }
+
+    // === App Initialization ===
+    async function initializeApp() {
+        const recCamStarted = await startWebcam(recognizeVideo, (stream) => { recognizeStream = stream; });
+        if (recCamStarted) {
+            resultText.textContent = 'Sẵn sàng. Nhấn "Nhận Diện".';
+            resultBox.className = 'result-box';
+            recognizeBtn.disabled = false;
+        } else {
+            resultText.textContent = 'Lỗi camera nhận diện.';
+            resultBox.className = 'result-box error';
+            recognizeBtn.disabled = true;
+        }
+        switchTab(true);
+    }
+
+    initializeApp();
+});
+</script>
+</body>
+</html> 
