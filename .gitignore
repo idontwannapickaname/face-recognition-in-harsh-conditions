@@ -7,6 +7,7 @@ __pycache__/
 
 # Dữ liệu người dùng và model
 face_data/
+data/
 
 # File hệ điều hành
 .DS_Store
