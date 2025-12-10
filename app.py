@@ -263,4 +263,4 @@ if __name__ == '__main__':
     # "Train" lại model một lần khi khởi động để đảm bảo dữ liệu luôn mới nhất
     if not ENCODINGS_FILE.exists() or not LABELS_FILE.exists() or not USERS_FILE.exists():
         update_database()
-    app.run(debug=True, host='0.0.0.0', port=5000) 
+    app.run(debug=True, host='0.0.0.0', port=5001) 

@@ -5,3 +5,8 @@ face-recognition
 Pillow
 gunicorn
 setuptools 
+torch
+torchvision
+timm
+mxnet
+opencv-python
