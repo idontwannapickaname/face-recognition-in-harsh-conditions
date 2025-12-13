@@ -1,14 +1,13 @@
 # Môi trường ảo
-venv/
+.venv/
 /venv
 __pycache__/
 *.pyc
 *.pyo
 
 # Dữ liệu người dùng và model
-face_data/
 data/
 
-# File hệ điều hành
-.DS_Store
-Thumbs.db 
+#vscode
+.vscode
+
