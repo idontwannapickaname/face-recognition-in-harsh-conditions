@@ -3,18 +3,22 @@ import torch
 import torch.nn as nn
 from sklearn.metrics import confusion_matrix, precision_score, recall_score, f1_score
 from typing import Dict
+from collections import defaultdict
 
-
-def eval_minimal_model(model, data_loader, id_name_map: Dict[int, str], device: str = "cuda", with_archead: bool = False):
+def eval_minimal_model(model, data_loader, id_name_map, device="cuda", with_archead=False):
     criterion = nn.CrossEntropyLoss()
     model.eval()
 
+    # overall
     correct = 0
     total = 0
     running_loss = 0.0
-    class_correct = {}
-    class_total = {}
 
+    # per-class counters
+    class_correct = defaultdict(int)
+    class_total = defaultdict(int)
+
+    # For precision/recall/F1
     all_labels = []
     all_preds = []
     all_probs = []
@@ -23,21 +27,34 @@ def eval_minimal_model(model, data_loader, id_name_map: Dict[int, str], device: 
         for imgs, labels in data_loader:
             imgs = imgs.to(device)
             labels = labels.to(device)
-            logits = model(imgs, labels) if with_archead else model(imgs)
+
+            if with_archead:
+                logits = model(imgs, labels)
+            else:
+                logits = model(imgs)
             probs = torch.softmax(logits, dim=1)
             all_probs.extend(probs.cpu().numpy())
             pred = logits.argmax(dim=1)
+
+            # Loss
             loss = criterion(logits, labels)
             running_loss += loss.item()
+
+            # overall
             correct += (pred == labels).sum().item()
             total += labels.size(0)
+
+            # per-class accuracy
             for l, p in zip(labels, pred):
-                class_total[int(l.item())] = class_total.get(int(l.item()), 0) + 1
+                class_total[l.item()] += 1
                 if l == p:
-                    class_correct[int(l.item())] = class_correct.get(int(l.item()), 0) + 1
+                    class_correct[l.item()] += 1
+
+            # For other metrics
             all_labels.extend(labels.cpu().numpy())
             all_preds.extend(pred.cpu().numpy())
 
+    # ----- Accuracy per class -----
     class_acc = {}
     for label in class_total:
         acc = class_correct[label] / class_total[label]
@@ -53,43 +70,71 @@ def eval_minimal_model(model, data_loader, id_name_map: Dict[int, str], device: 
     }
 
 
-def eval_model(model, data_loader, id_name_map: Dict[int, str], device: str = "cuda", with_archead: bool = False):
+def eval_model(model, data_loader, id_name_map, device="cuda", with_archead=False):
     criterion = nn.CrossEntropyLoss()
     model.eval()
 
+    from collections import defaultdict
+
+    # overall
     correct = 0
     total = 0
     running_loss = 0.0
-    class_correct = {}
-    class_total = {}
+
+    # per-class counters
+    class_correct = defaultdict(int)
+    class_total = defaultdict(int)
+
+    # For precision/recall/F1
     all_labels = []
     all_preds = []
     all_probs = []
 
     with torch.inference_mode():
         for imgs, labels in data_loader:
+            # imgs: list TTA → imgs shape = [batch, T, C, H, W]
             labels = labels.to(device)
+
             imgs = imgs[0]
             imgs = [im.to(device) for im in imgs]
+
+            # ---- Tính logits trung bình qua TTA ----
             logits_list = []
+
             for im in imgs:
-                logits = model(im.unsqueeze(0), labels) if with_archead else model(im.unsqueeze(0))
+                if with_archead:
+                    logits = model(im.unsqueeze(0), labels)
+                else:
+                    logits = model(im.unsqueeze(0))
                 logits_list.append(logits)
+
+            # average logits over TTA
             avg_logits = torch.stack(logits_list).mean(dim=0)
             probs = torch.softmax(avg_logits, dim=1)
+
+            # lấy pred
             pred = avg_logits.argmax(dim=1)
+
+            # Loss
             loss = criterion(avg_logits, labels)
             running_loss += loss.item()
+
+            # overall
             correct += (pred == labels).sum().item()
             total += labels.size(0)
+
+            # per-class accuracy
             for l, p in zip(labels, pred):
-                class_total[int(l.item())] = class_total.get(int(l.item()), 0) + 1
+                class_total[l.item()] += 1
                 if l == p:
-                    class_correct[int(l.item())] = class_correct.get(int(l.item()), 0) + 1
+                    class_correct[l.item()] += 1
+
+            # For other metrics
             all_labels.extend(labels.cpu().numpy())
             all_preds.extend(pred.cpu().numpy())
             all_probs.extend(probs.cpu().numpy())
 
+    # ----- Accuracy per class -----
     class_acc = {}
     for label in class_total:
         acc = class_correct[label] / class_total[label]
@@ -98,8 +143,10 @@ def eval_model(model, data_loader, id_name_map: Dict[int, str], device: str = "c
     overall_acc = correct / total
     val_loss = running_loss / len(data_loader)
 
+    # ----- Precision / Recall / F1 per class -----
     num_classes = len(id_name_map)
     eps = 1e-9
+
     cm = confusion_matrix(all_labels, all_preds, labels=list(range(num_classes)))
 
     precision = {}
@@ -110,39 +157,28 @@ def eval_model(model, data_loader, id_name_map: Dict[int, str], device: str = "c
         tp = cm[i, i]
         fp = cm[:, i].sum() - tp
         fn = cm[i, :].sum() - tp
+
         prec = tp / (tp + fp + eps)
         rec = tp / (tp + fn + eps)
         f1_i = 2 * prec * rec / (prec + rec + eps)
+
         name = id_name_map[i]
-        precision[name] = prec
-        recall[name] = rec
         f1[name] = f1_i
 
     balanced_acc = np.mean(list(class_acc.values()))
-    precision_micro = precision_score(all_labels, all_preds, average='micro')
-    recall_micro = recall_score(all_labels, all_preds, average='micro')
-    f1_micro = f1_score(all_labels, all_preds, average='micro')
-    precision_macro = precision_score(all_labels, all_preds, average='macro')
-    recall_macro = recall_score(all_labels, all_preds, average='macro')
-    f1_macro = f1_score(all_labels, all_preds, average='macro')
-    precision_weighted = precision_score(all_labels, all_preds, average='weighted')
-    recall_weighted = recall_score(all_labels, all_preds, average='weighted')
-    f1_weighted = f1_score(all_labels, all_preds, average='weighted')
+    f1_micro        = f1_score(all_labels, all_preds, average='micro')
+    f1_macro        = f1_score(all_labels, all_preds, average='macro')
+
 
     return {
         "val_loss": val_loss,
         "overall_acc": overall_acc,
         "balanced_acc": balanced_acc,
         "class_acc": class_acc,
-        "precision_micro": precision_micro,
-        "recall_micro": recall_micro,
+        
         "f1_micro": f1_micro,
-        "precision_macro": precision_macro,
-        "recall_macro": recall_macro,
         "f1_macro": f1_macro,
-        "precision_weighted": precision_weighted,
-        "recall_weighted": recall_weighted,
-        "f1_weighted": f1_weighted,
+        
         "precision": precision,
         "recall": recall,
         "f1": f1,

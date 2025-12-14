@@ -26,7 +26,7 @@ class PairedLightDarkDataset(Dataset):
         return len(self.person_ids)
 
     def __getitem__(self, idx):
-        weights = [0, 0, 1]
+        weights = [0, 1, 1.2]
         choice = random.choices(['pull_2_dark', 'push_2_dark', 'pull_light_dark'], weights)
         if choice == ['pull_light_dark']:
             pid = random.choice(self.person_ids)
