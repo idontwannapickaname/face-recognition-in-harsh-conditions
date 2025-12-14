@@ -1,3 +1,5 @@
+### Mô hình huấn luyện cho việc nhận dạng khuôn mặt ở điều kiện thiếu sáng có thể xem ở nhánh khtk
+
 # Hệ Thống Nhận Diện Khuôn Mặt Chính Xác
 
 Đây là một ứng dụng web được xây dựng bằng Python (Flask) với mục tiêu nhận diện khuôn mặt một cách chính xác, đặc biệt là khả năng phân biệt người dùng đã đăng ký và "người lạ".
